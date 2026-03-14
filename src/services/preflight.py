@@ -101,9 +101,16 @@ async def run_preflight(config: AdversaConfig) -> PreflightResult:
     failed = [c for c in checks if c.status == "fail"]
     scope_manifest = ScopeEnforcer.from_config(config).to_json()
 
+    # Repo introspection — only runs when the repo is accessible
+    repo_profile = None
+    if any(c.name == "repo_accessible" and c.status == "pass" for c in checks):
+        from src.services.repo_introspection import run_repo_introspection
+        repo_profile = await run_repo_introspection(config)
+
     return PreflightResult(
         status="fail" if failed else "pass",
         checks=checks,
         errors=[c.detail for c in failed if c.detail],
         scope_manifest=scope_manifest,
+        repo_profile=repo_profile,
     )
