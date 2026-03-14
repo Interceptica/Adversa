@@ -15,7 +15,15 @@ from src.types import WorkflowInput, WorkflowResult
 @activity.defn
 async def run_preflight_phase(input: WorkflowInput) -> WorkflowResult:
     """Phase 0 — preflight checks, scope manifest, repo introspection."""
-    raise NotImplementedError("run_preflight_phase not yet implemented")
+    from src.services.preflight import run_preflight
+
+    result = await run_preflight(input.config)
+    if result.status == "fail":
+        return WorkflowResult(
+            status="aborted",
+            reason=f"Pre-flight failed: {'; '.join(result.errors)}",
+        )
+    return WorkflowResult(status="complete")
 
 
 @activity.defn
