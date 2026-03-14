@@ -51,11 +51,12 @@ def _make_config(
     )
 
 
-def _mock_which_pass(tool_names: list[str]):
-    """Return a subprocess mock where every `which <tool>` call succeeds."""
-    result = MagicMock()
-    result.returncode = 0
-    return result
+def _mock_proc(returncode: int) -> AsyncMock:
+    """Return an async process mock with the given returncode."""
+    proc = AsyncMock()
+    proc.returncode = returncode
+    proc.wait = AsyncMock()
+    return proc
 
 
 def _mock_http_response(status_code: int = 200):
@@ -80,7 +81,7 @@ async def test_all_checks_pass(tmp_path):
 
     with (
         patch("src.services.preflight.httpx.AsyncClient") as mock_client_cls,
-        patch("src.services.preflight.subprocess.run", return_value=MagicMock(returncode=0)),
+        patch("src.services.preflight.asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=_mock_proc(0)),
     ):
         # HEAD → 200, POST (api_key) → 200
         mock_client = AsyncMock()
@@ -112,7 +113,7 @@ async def test_unreachable_target_fails(tmp_path):
 
     with (
         patch("src.services.preflight.httpx.AsyncClient") as mock_client_cls,
-        patch("src.services.preflight.subprocess.run", return_value=MagicMock(returncode=0)),
+        patch("src.services.preflight.asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=_mock_proc(0)),
     ):
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -137,7 +138,7 @@ async def test_missing_repo_path_fails(tmp_path):
 
     with (
         patch("src.services.preflight.httpx.AsyncClient") as mock_client_cls,
-        patch("src.services.preflight.subprocess.run", return_value=MagicMock(returncode=0)),
+        patch("src.services.preflight.asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=_mock_proc(0)),
     ):
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -162,7 +163,7 @@ async def test_multiple_failures_all_collected(tmp_path):
 
     with (
         patch("src.services.preflight.httpx.AsyncClient") as mock_client_cls,
-        patch("src.services.preflight.subprocess.run", return_value=MagicMock(returncode=1)),
+        patch("src.services.preflight.asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=_mock_proc(1)),
     ):
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -193,7 +194,7 @@ async def test_invalid_api_key_fails(tmp_path):
 
     with (
         patch("src.services.preflight.httpx.AsyncClient") as mock_client_cls,
-        patch("src.services.preflight.subprocess.run", return_value=MagicMock(returncode=0)),
+        patch("src.services.preflight.asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=_mock_proc(0)),
     ):
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -218,7 +219,7 @@ async def test_api_400_treated_as_key_valid(tmp_path):
 
     with (
         patch("src.services.preflight.httpx.AsyncClient") as mock_client_cls,
-        patch("src.services.preflight.subprocess.run", return_value=MagicMock(returncode=0)),
+        patch("src.services.preflight.asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=_mock_proc(0)),
     ):
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -241,7 +242,7 @@ async def test_joern_checked_when_enabled(tmp_path):
 
     with (
         patch("src.services.preflight.httpx.AsyncClient") as mock_client_cls,
-        patch("src.services.preflight.subprocess.run", return_value=MagicMock(returncode=0)),
+        patch("src.services.preflight.asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=_mock_proc(0)),
     ):
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -262,7 +263,7 @@ async def test_joern_not_checked_when_disabled(tmp_path):
 
     with (
         patch("src.services.preflight.httpx.AsyncClient") as mock_client_cls,
-        patch("src.services.preflight.subprocess.run", return_value=MagicMock(returncode=0)),
+        patch("src.services.preflight.asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=_mock_proc(0)),
     ):
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -286,7 +287,7 @@ async def test_scope_manifest_always_emitted(tmp_path):
 
     with (
         patch("src.services.preflight.httpx.AsyncClient") as mock_client_cls,
-        patch("src.services.preflight.subprocess.run", return_value=MagicMock(returncode=1)),
+        patch("src.services.preflight.asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=_mock_proc(1)),
     ):
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)

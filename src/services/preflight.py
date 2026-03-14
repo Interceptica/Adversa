@@ -7,7 +7,7 @@ never short-circuits after the first error.
 """
 from __future__ import annotations
 
-import subprocess
+import asyncio
 from pathlib import Path
 
 import httpx
@@ -56,21 +56,17 @@ async def run_preflight(config: AdversaConfig) -> PreflightResult:
         checks.append(Check("repo_accessible", "fail", f"Path not found: {config.repo.path}"))
 
     # 4. Required tools on PATH
-    # subprocess.run is synchronous and technically blocks the event loop, but
-    # `which` completes in microseconds so it is inconsequential here.
-    # If async subprocess becomes a wider pattern, prefer:
-    #   proc = await asyncio.create_subprocess_exec(
-    #       "which", tool,
-    #       stdout=asyncio.subprocess.DEVNULL,
-    #       stderr=asyncio.subprocess.DEVNULL,
-    #   )
-    #   await proc.wait()
     required_tools = list(_BASE_REQUIRED_TOOLS)
     if config.repo.joern_enabled:
         required_tools.append(_JOERN_TOOL)
 
     for tool in required_tools:
-        proc = subprocess.run(["which", tool], capture_output=True)
+        proc = await asyncio.create_subprocess_exec(
+            "which", tool,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.wait()
         status = "pass" if proc.returncode == 0 else "fail"
         checks.append(Check(f"tool:{tool}", status))
 
