@@ -177,7 +177,7 @@ async def _run_introspection_agent(
         max_turns=50,
         cwd=str(repo_path),
         env=env,
-        permission_mode="acceptEdits",
+        permission_mode="default",
     )
 
     try:
