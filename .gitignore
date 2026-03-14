@@ -3,3 +3,4 @@ claude.md
 adversa.config.yaml
 repos/
 runs/
+__pycache__

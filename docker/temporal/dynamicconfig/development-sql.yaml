@@ -1,0 +1,10 @@
+# Temporal dynamic config for local development with SQL backend.
+# See: https://github.com/temporalio/temporal/blob/main/config/dynamicconfig/development-sql.yaml
+
+limit.maxIDLength:
+  - value: 255
+    constraints: {}
+
+system.forceSearchAttributesCacheRefreshOnRead:
+  - value: true
+    constraints: {}

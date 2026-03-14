@@ -1,0 +1,68 @@
+meta:
+  project: "example-project"
+  # engagement_id: omit to auto-generate as adv-{timestamp}
+  report_output: "./reports/output.html"
+
+llm:
+  model_name: "claude-sonnet-4-6"
+  api_key: "${LLM_API_KEY}"
+  base_url: null  # null = Anthropic. Set for third-party Anthropic-compatible providers.
+
+target:
+  base_url: "https://example.com"
+  included_hosts:
+    - "example.com"
+  excluded_hosts:
+    - "admin.example.com"
+
+authentication:
+  login_type: "form"
+  login_url: "https://example.com/login"
+  credentials:
+    username: "${TARGET_USERNAME}"
+    password: "${TARGET_PASSWORD}"
+    totp_secret: null
+  login_flow:
+    - "fill #username with credentials.username"
+    - "fill #password with credentials.password"
+    - "click #login-btn"
+  success_condition:
+    type: "url_contains"
+    value: "/dashboard"
+  token_extraction:
+    type: "cookie"
+    header: null
+
+scope:
+  rules:
+    avoid:
+      - description: "Skip logout endpoint"
+        type: "path"
+        url_path: "/logout"
+      - description: "Skip admin panel"
+        type: "path_pattern"
+        url_path: "/admin/*"
+    focus:
+      - description: "Focus on API endpoints"
+        type: "path_pattern"
+        url_path: "/api/*"
+  max_depth: 3
+  rate_limit_rps: 10
+
+pipeline:
+  enabled:
+    - "injection"
+    - "authz"
+    - "info_disclosure"
+    - "ssrf"
+    - "sast_triage"
+    - "sca_reachability"
+  timeout_per_pipeline_seconds: 300
+  parallel: true
+  max_concurrent_pipelines: 5
+
+repo:
+  path: "/path/to/target/repo"
+  language: null          # auto-detected by Phase 0 if null
+  semgrep_rulesets: null  # auto-detected by Phase 0 if null
+  joern_enabled: true

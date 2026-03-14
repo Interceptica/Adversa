@@ -1,0 +1,90 @@
+# Adversa — Docker Compose stack
+
+# ─── Named volumes ────────────────────────────────────────────────────────────
+volumes:
+  postgres-data:
+
+# ─── Services ─────────────────────────────────────────────────────────────────
+services:
+
+  # ── PostgreSQL — Temporal persistence ─────────────────────────────────────
+  postgresql:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+      POSTGRES_DB: temporal
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Temporal server ────────────────────────────────────────────────────────
+  temporal:
+    image: temporalio/auto-setup:1.29.4
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - POSTGRES_SEEDS=postgresql
+      - DYNAMIC_CONFIG_FILE_PATH=/etc/temporal/dynamicconfig/development-sql.yaml
+    ports:
+      - "7233:7233"
+    volumes:
+      - ./docker/temporal/dynamicconfig:/etc/temporal/dynamicconfig
+    healthcheck:
+      test: ["CMD-SHELL", "tctl --address temporal:7233 cluster health 2>/dev/null | grep -q SERVING || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # ── Temporal Web UI ────────────────────────────────────────────────────────
+  temporal-ui:
+    image: temporalio/ui:2.47.2
+    depends_on:
+      - temporal
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  # ── Adversa worker ────────────────────────────────────────────────────────
+  adversa:
+    image: adversa:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      temporal:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      # Temporal connection (points to the temporal service above)
+      - TEMPORAL_HOST=temporal:7233
+      # Prevent Playwright from using sandbox (required in Docker)
+      - PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
+    volumes:
+      # Repositories — writable because prerecon/recon write artifacts inside the repo tree
+      - ./repos:/app/repos
+      # Artifact output (writable)
+      - ./runs:/app/runs
+      # Config (read-only)
+      - ./adversa.config.yaml:/app/adversa.config.yaml:ro
+    restart: unless-stopped
+    # Allow nmap raw socket access (required for SYN scans)
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
