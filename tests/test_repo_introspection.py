@@ -3,15 +3,14 @@ Tests for INT-299: Phase 0 repo introspection.
 
 Strategy under test:
   - Language detection: deterministic (manifest filenames)
-  - Framework detection: claude-agent-sdk agent (query() mocked)
+  - Framework detection: claude-agent-sdk agent (run_agent mocked)
   - Ruleset validation: filtered by VALID_RULESETS
   - Config overrides: always win
 """
 from __future__ import annotations
 
-import json
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -57,53 +56,34 @@ def _make_config(
     )
 
 
-def _make_result_message(payload: str):
-    """Construct a ResultMessage with all required fields populated."""
-    from claude_agent_sdk import ResultMessage
-    return ResultMessage(
-        subtype="success",
-        duration_ms=0,
-        duration_api_ms=0,
-        is_error=False,
-        num_turns=1,
-        session_id="test-session",
-        result=payload,
-    )
+def _mock_run_agent(frameworks: list[str], rulesets: list[str], confidence: str = "high"):
+    """Mock run_agent() to return structured output."""
+    async def _agent(**kwargs):
+        return {
+            "result": "",
+            "structured_output": {
+                "frameworks": frameworks,
+                "semgrep_rulesets": rulesets,
+                "confidence": confidence,
+                "reasoning": "test",
+            },
+            "error": None,
+        }
+    return _agent
 
 
-def _mock_query(frameworks: list[str], rulesets: list[str], confidence: str = "high"):
-    """
-    Return an async generator that yields a ResultMessage with the given payload.
-    Used to mock claude_agent_sdk.query().
-    """
-    payload = json.dumps({
-        "frameworks": frameworks,
-        "semgrep_rulesets": rulesets,
-        "confidence": confidence,
-        "reasoning": "test",
-    })
-
-    async def _gen(*args, **kwargs):
-        yield _make_result_message(payload)
-
-    return _gen
+def _mock_run_agent_failure():
+    """Mock run_agent() returning an error."""
+    async def _agent(**kwargs):
+        return {"result": "", "structured_output": None, "error": "agent call failed"}
+    return _agent
 
 
-def _mock_query_failure():
-    """Returns an async generator that raises on iteration."""
-    async def _gen(*args, **kwargs):
-        raise Exception("agent call failed")
-        yield  # make it a generator
-
-    return _gen
-
-
-def _mock_query_bad_json():
-    """Returns an async generator that yields a ResultMessage with non-JSON text."""
-    async def _gen(*args, **kwargs):
-        yield _make_result_message("not valid json {{{{")
-
-    return _gen
+def _mock_run_agent_no_output():
+    """Mock run_agent() with empty structured output (agent returned nothing useful)."""
+    async def _agent(**kwargs):
+        return {"result": "", "structured_output": None, "error": None}
+    return _agent
 
 
 # ─── Language detection (deterministic) ───────────────────────────────────────
@@ -149,7 +129,7 @@ async def test_fastapi_repo_detected(tmp_path):
     (tmp_path / "pyproject.toml").write_text('[project]\ndependencies = ["fastapi"]')
     config = _make_config(repo_path=str(tmp_path))
 
-    with patch("src.services.repo_introspection.query", _mock_query(
+    with patch("src.services.repo_introspection.run_agent", _mock_run_agent(
         ["fastapi"], ["p/owasp-top-ten", "p/python"]
     )):
         result = await run_repo_introspection(config)
@@ -166,7 +146,7 @@ async def test_monorepo_fastapi_nextjs(tmp_path):
     (tmp_path / "package.json").write_text('{"dependencies": {"next": "14.0.0"}}')
     config = _make_config(repo_path=str(tmp_path))
 
-    with patch("src.services.repo_introspection.query", _mock_query(
+    with patch("src.services.repo_introspection.run_agent", _mock_run_agent(
         ["fastapi", "nextjs"],
         ["p/owasp-top-ten", "p/python", "p/typescript", "p/nodejs"],
     )):
@@ -184,7 +164,7 @@ async def test_jwt_ruleset_included_when_agent_returns_it(tmp_path):
     (tmp_path / "requirements.txt").write_text("fastapi\npyjwt\n")
     config = _make_config(repo_path=str(tmp_path))
 
-    with patch("src.services.repo_introspection.query", _mock_query(
+    with patch("src.services.repo_introspection.run_agent", _mock_run_agent(
         ["fastapi"], ["p/owasp-top-ten", "p/python", "p/jwt"]
     )):
         result = await run_repo_introspection(config)
@@ -199,7 +179,7 @@ async def test_hallucinated_ruleset_filtered_out(tmp_path):
     (tmp_path / "pyproject.toml").write_text("[project]")
     config = _make_config(repo_path=str(tmp_path))
 
-    with patch("src.services.repo_introspection.query", _mock_query(
+    with patch("src.services.repo_introspection.run_agent", _mock_run_agent(
         ["fastapi"],
         ["p/owasp-top-ten", "p/python", "p/made-up-ruleset", "p/another-fake"],
     )):
@@ -213,7 +193,7 @@ async def test_owasp_always_present_even_if_agent_omits_it(tmp_path):
     (tmp_path / "pyproject.toml").write_text("[project]")
     config = _make_config(repo_path=str(tmp_path))
 
-    with patch("src.services.repo_introspection.query", _mock_query(
+    with patch("src.services.repo_introspection.run_agent", _mock_run_agent(
         ["fastapi"], ["p/python"]  # no owasp
     )):
         result = await run_repo_introspection(config)
@@ -228,7 +208,7 @@ async def test_agent_failure_falls_back_to_deterministic_rulesets(tmp_path):
     (tmp_path / "pyproject.toml").write_text("[project]")
     config = _make_config(repo_path=str(tmp_path))
 
-    with patch("src.services.repo_introspection.query", _mock_query_failure()):
+    with patch("src.services.repo_introspection.run_agent", _mock_run_agent_failure()):
         result = await run_repo_introspection(config)
 
     assert "p/owasp-top-ten" in result.semgrep_rulesets
@@ -236,11 +216,11 @@ async def test_agent_failure_falls_back_to_deterministic_rulesets(tmp_path):
     assert result.confidence == "low"
 
 
-async def test_agent_invalid_json_falls_back(tmp_path):
+async def test_agent_no_output_falls_back(tmp_path):
     (tmp_path / "go.mod").write_text("module example.com/app")
     config = _make_config(repo_path=str(tmp_path))
 
-    with patch("src.services.repo_introspection.query", _mock_query_bad_json()):
+    with patch("src.services.repo_introspection.run_agent", _mock_run_agent_no_output()):
         result = await run_repo_introspection(config)
 
     assert "p/owasp-top-ten" in result.semgrep_rulesets
@@ -251,7 +231,6 @@ async def test_agent_invalid_json_falls_back(tmp_path):
 
 
 async def test_config_language_overrides_detected(tmp_path):
-    # Repo has go.mod but config says python
     (tmp_path / "go.mod").write_text("module example.com/app")
     config = _make_config(repo_path=str(tmp_path), language="python", semgrep_rulesets=["p/owasp-top-ten", "p/python"])
 
@@ -277,9 +256,9 @@ async def test_config_short_circuits_agent_call(tmp_path):
     (tmp_path / "pyproject.toml").write_text("[project]")
     config = _make_config(repo_path=str(tmp_path), language="python", semgrep_rulesets=["p/owasp-top-ten"])
 
-    with patch("src.services.repo_introspection.query") as mock_query:
+    with patch("src.services.repo_introspection.run_agent") as mock_agent:
         await run_repo_introspection(config)
-        mock_query.assert_not_called()
+        mock_agent.assert_not_called()
 
 
 # ─── Fallback ruleset helper ──────────────────────────────────────────────────

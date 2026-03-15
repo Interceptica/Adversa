@@ -39,16 +39,17 @@ log = logging.getLogger(__name__)
 
 
 def _extract_json(text: str) -> dict | None:
-    """Extract the last JSON object from a string that may contain prose + JSON."""
-    # Try parsing the whole string first
+    """Extract the last JSON object from text that may contain prose + JSON.
+
+    Fallback for providers that don't support output_format structured output.
+    """
     try:
         return json.loads(text.strip())
     except (json.JSONDecodeError, ValueError):
         pass
 
-    # Find all JSON-like blocks (outermost { ... })
     matches = list(re.finditer(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text, re.DOTALL))
-    for match in reversed(matches):  # try last match first
+    for match in reversed(matches):
         try:
             return json.loads(match.group())
         except (json.JSONDecodeError, ValueError):
@@ -69,14 +70,16 @@ async def run_agent(
     options: ClaudeAgentOptions,
     prompt: str,
     config: AdversaConfig,
-    parse_json: bool = False,
 ) -> dict[str, Any]:
     """
     Run a ClaudeSDKClient agent in a dedicated thread with a fresh event loop.
 
+    When options.output_format is set, the agent returns structured output via
+    ResultMessage.structured_output — no regex extraction needed.
+
     Returns a dict with:
-      - result: str — final ResultMessage text (or last assistant text as fallback)
-      - parsed: dict | None — if parse_json=True, extracted JSON from the response
+      - result: str — final ResultMessage text
+      - structured_output: dict | None — validated structured output (if output_format set)
       - error: str | None — error message if the agent failed
 
     Never raises — all errors are captured in the return dict.
@@ -100,6 +103,7 @@ async def run_agent(
 
             result_text: str = ""
             last_assistant_text: str = ""
+            structured: dict | None = None
             try:
                 async with ClaudeSDKClient(options=options) as client:
                     await client.query(prompt)
@@ -110,20 +114,21 @@ async def run_agent(
                                     last_assistant_text = block.text.strip()
                         if isinstance(message, ResultMessage):
                             result_text = (message.result or "").strip()
+                            structured = getattr(message, "structured_output", None)
             except Exception as exc:
                 log.warning("Agent failed: %s", exc)
-                return {"result": "", "parsed": None, "error": str(exc)}
+                return {"result": "", "structured_output": None, "error": str(exc)}
 
-            # Use last assistant text as fallback when ResultMessage.result is empty
-            final = result_text or last_assistant_text
+            # Fallback: if structured_output is None (provider doesn't support
+            # output_format), extract JSON from the agent's text response.
+            if structured is None:
+                raw = result_text or last_assistant_text
+                if raw:
+                    structured = _extract_json(raw)
+                    if structured is None:
+                        log.warning("Agent JSON extraction failed | raw=%r", raw[:300])
 
-            parsed = None
-            if parse_json and final:
-                parsed = _extract_json(final)
-                if parsed is None:
-                    log.warning("Agent JSON extraction failed | raw=%r", final[:300])
-
-            return {"result": final, "parsed": parsed, "error": None}
+            return {"result": result_text, "structured_output": structured, "error": None}
 
         return asyncio.run(_inner())
 

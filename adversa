@@ -91,7 +91,7 @@ _start_containers() {
 }
 
 _ensure_containers() {
-    _build_images "false" "false"
+    _build_images "$PULL" "$REBUILD"
     _start_containers
 }
 

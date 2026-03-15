@@ -5,7 +5,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from typing import Literal
+
 from claude_agent_sdk import ClaudeAgentOptions
+from pydantic import BaseModel, Field
 
 from src.artifacts.schemas import RepoProfile
 from src.config.models import AdversaConfig
@@ -53,40 +56,56 @@ VALID_RULESETS: set[str] = {
     "p/php",
 }
 
+# ─── Structured output schema ─────────────────────────────────────────────────
+
+
+class IntrospectionResult(BaseModel):
+    """Schema for the agent's structured output — drives JSON validation via claude-agent-sdk."""
+
+    frameworks: list[str] = Field(
+        description="Detected frameworks and libraries (e.g. ['express', 'angular', 'sequelize', 'jwt'])",
+    )
+    semgrep_rulesets: list[str] = Field(
+        description="Semgrep rulesets to use — must be from the allowed list provided in the prompt",
+    )
+    confidence: Literal["high", "medium", "low"] = Field(
+        description="How confident the detection is based on evidence found in the repo",
+    )
+    reasoning: str = Field(
+        description="One-sentence explanation of what was found and how confidence was determined",
+    )
+
+
+_OUTPUT_FORMAT: dict = {
+    "type": "json_schema",
+    "schema": IntrospectionResult.model_json_schema(),
+}
+
 # ─── Agent prompt ──────────────────────────────────────────────────────────────
 
 _SYSTEM_PROMPT = (
-    "You are a tech stack detection tool for security testing. "
-    "Explore the repository using your tools, then respond with a single valid "
-    "JSON object — no markdown, no explanation."
+    "You are a fast tech stack detection tool. "
+    "Find and read dependency manifest files, identify frameworks, then return your result. "
+    "Do NOT read source code. Do NOT verify framework usage. Only read manifest files."
 )
 
 _USER_PROMPT = """\
 Analyse the repository at: {repo_path}
 
-Languages already confirmed from manifest filenames (treat as ground truth):
-{detected_languages}
+Languages already confirmed: {detected_languages}
 
-Use your tools to explore the repository:
-1. Use LS to list the root directory and any relevant subdirectories
-2. Use Read to examine manifest files (package.json, pyproject.toml, requirements.txt, go.mod, pom.xml, Cargo.toml, etc.)
-3. Use Glob to find any other relevant configuration or dependency files
+Steps (do exactly these, nothing more):
+1. Use Glob to find all manifest files: package.json, pyproject.toml, requirements.txt, go.mod, pom.xml, Cargo.toml, Gemfile, composer.json (search up to 2 levels deep)
+2. Read each manifest file found
+3. Return your result immediately after reading all manifests
 
-Once you have explored enough, respond with ONLY this JSON structure:
-{{
-  "frameworks": ["<name>", ...],
-  "semgrep_rulesets": ["<ruleset>", ...],
-  "confidence": "<high|medium|low>",
-  "reasoning": "<one sentence>"
-}}
+Do NOT read source code files. Do NOT verify framework usage. Just read manifests and return.
 
-Rules:
-- frameworks: list every framework/library you can identify (e.g. ["fastapi", "nextjs", "celery", "sqlalchemy"])
-- semgrep_rulesets: choose only from this allowed list:
-  {valid_rulesets}
+Rules for your output:
+- frameworks: list all frameworks/libraries found across ALL manifests (e.g. ["express", "angular", "fastapi", "sequelize"])
+- semgrep_rulesets: choose ONLY from: {valid_rulesets}
 - Always include p/owasp-top-ten
-- Always include p/jwt if any JWT-related dependency is present
-- If you cannot determine frameworks, return an empty list
+- Include p/jwt if any JWT dependency is present (jsonwebtoken, pyjwt, express-jwt, etc.)
 """
 
 
@@ -166,20 +185,20 @@ async def _run_introspection_agent(
         model=config.llm.model_name,
         system_prompt=_SYSTEM_PROMPT,
         allowed_tools=_ALLOWED_TOOLS,
-        max_turns=15,
+        max_turns=20,  
         cwd=str(repo_path),
         env=build_agent_env(config),
         permission_mode="default",
+        output_format=_OUTPUT_FORMAT,
     )
 
     result = await run_agent(
         options=options,
         prompt=prompt,
         config=config,
-        parse_json=True,
     )
 
-    return result.get("parsed") or {}
+    return result.get("structured_output") or {}
 
 
 # ─── Step 3: resolve + validate ───────────────────────────────────────────────
