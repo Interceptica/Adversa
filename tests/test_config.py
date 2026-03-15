@@ -5,6 +5,8 @@ import os
 import re
 import textwrap
 
+os.environ.setdefault("ANTHROPIC_API_KEY", "test-key")
+
 import pytest
 from pydantic import ValidationError
 
@@ -21,7 +23,7 @@ MINIMAL_CONFIG = textwrap.dedent("""\
 
     llm:
       model_name: "claude-sonnet-4-6"
-      api_key: "test-key"
+      api_key_env: "ANTHROPIC_API_KEY"
       base_url: null
 
     target:
@@ -79,7 +81,7 @@ def test_llm_base_url_null():
     cfg = _load(MINIMAL_CONFIG)
     assert cfg.llm.base_url is None
     assert cfg.llm.model_name == "claude-sonnet-4-6"
-    assert cfg.llm.api_key == "test-key"
+    assert cfg.llm.api_key_env == "ANTHROPIC_API_KEY"
 
 
 def test_llm_base_url_set():
@@ -151,15 +153,18 @@ def test_repo_semgrep_rulesets_null():
 
 
 def test_env_var_interpolation():
-    """${ENV_VAR} placeholders are resolved from environment."""
-    yaml_str = MINIMAL_CONFIG.replace('api_key: "test-key"', "api_key: ${MY_API_KEY}")
-    cfg = _load(yaml_str, env={"MY_API_KEY": "secret-from-env"})
-    assert cfg.llm.api_key == "secret-from-env"
+    """${ENV_VAR} placeholders in YAML are resolved from environment."""
+    yaml_str = MINIMAL_CONFIG.replace(
+        "base_url: null",
+        "base_url: ${MY_BASE_URL}",
+    )
+    cfg = _load(yaml_str, env={"MY_BASE_URL": "https://custom-provider.example.com"})
+    assert cfg.llm.base_url == "https://custom-provider.example.com"
 
 
 def test_missing_env_var_raises_config_error():
     """Missing ${ENV_VAR} raises ConfigError."""
-    yaml_str = MINIMAL_CONFIG.replace('api_key: "test-key"', "api_key: ${MISSING_VAR_XYZ}")
+    yaml_str = MINIMAL_CONFIG.replace("base_url: null", "base_url: ${MISSING_VAR_XYZ}")
     os.environ.pop("MISSING_VAR_XYZ", None)
     with pytest.raises(ConfigError, match="MISSING_VAR_XYZ"):
         load_config_from_bytes(yaml_str.encode())

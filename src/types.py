@@ -16,3 +16,4 @@ class WorkflowResult:
     status: str  # "complete" | "aborted" | "partial"
     report_path: str | None = None
     reason: str | None = None
+    preflight_json: str | None = None  # serialised PreflightResult, set by PreflightWorkflow

@@ -7,9 +7,12 @@ with no external dependencies.
 from __future__ import annotations
 
 import asyncio
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+os.environ.setdefault("ANTHROPIC_API_KEY", "sk-test")
 
 from src.artifacts.schemas import Check, PreflightResult
 from src.config.models import (
@@ -34,12 +37,11 @@ def _make_config(
     included_hosts: list[str] | None = None,
     repo_path: str = "/tmp",
     joern_enabled: bool = False,
-    api_key: str = "sk-test",
     model_name: str = "claude-sonnet-4-6",
 ) -> AdversaConfig:
     return AdversaConfig(
         meta=MetaConfig(project="test", engagement_id="adv-test-001"),
-        llm=LLMConfig(model_name=model_name, api_key=api_key),
+        llm=LLMConfig(model_name=model_name, api_key_env="ANTHROPIC_API_KEY"),
         target=TargetConfig(
             base_url=base_url,
             included_hosts=included_hosts or ["api.target.com"],

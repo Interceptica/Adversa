@@ -5,9 +5,12 @@ from __future__ import annotations
 
 import json
 import asyncio
+import os
 from pathlib import Path
 
 import pytest
+
+os.environ.setdefault("ANTHROPIC_API_KEY", "sk-test")
 
 from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny, ToolPermissionContext
 
@@ -57,7 +60,7 @@ def _make_full_config(
 ) -> AdversaConfig:
     return AdversaConfig(
         meta=MetaConfig(project="test-project", engagement_id="adv-test-001"),
-        llm=LLMConfig(model_name="claude-sonnet-4-6", api_key="test-key"),
+        llm=LLMConfig(model_name="claude-sonnet-4-6", api_key_env="ANTHROPIC_API_KEY"),
         target=TargetConfig(
             base_url="https://api.target.com",
             included_hosts=included_hosts or ["api.target.com"],

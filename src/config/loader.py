@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import os
 import re
-from pathlib import Path
 from datetime import UTC, datetime
+from pathlib import Path
 
 import yaml
 from pydantic import ValidationError
@@ -27,6 +27,8 @@ def _interpolate_env_vars(raw: str) -> str:
 
 
 def load_config(path: str) -> AdversaConfig:
+    from dotenv import load_dotenv
+    load_dotenv()
     with open(path) as f:
         raw = f.read()
     resolved = _interpolate_env_vars(raw)

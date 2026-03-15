@@ -1,9 +1,41 @@
-# ─── Stage 1: Go tool installer ───────────────────────────────────────────────
-# Builds projectdiscovery binaries (subfinder, httpx) from official releases.
-FROM golang:1.23-bookworm AS go-tools
+# ─── Stage 1: ProjectDiscovery pre-built binaries ─────────────────────────────
+# Download official release zips — no Go compiler needed, immune to Go version churn.
+# TARGETOS / TARGETARCH are set automatically by Docker based on the build platform
+# (linux/amd64 on x86, linux/arm64 on Apple Silicon M-series).
+FROM debian:bookworm-slim AS pd-tools
 
-RUN go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest \
- && go install github.com/projectdiscovery/httpx/cmd/httpx@latest
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        unzip \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# subfinder — passive subdomain enumeration
+RUN LATEST=$(curl -fsSL -o /dev/null -w '%{url_effective}' \
+      https://github.com/projectdiscovery/subfinder/releases/latest \
+      | sed 's|.*/tag/v||') \
+    && curl -fsSL \
+      "https://github.com/projectdiscovery/subfinder/releases/download/v${LATEST}/subfinder_${LATEST}_${TARGETOS}_${TARGETARCH}.zip" \
+      -o /tmp/subfinder.zip \
+    && unzip -q /tmp/subfinder.zip subfinder -d /tmp/subfinder \
+    && mv /tmp/subfinder/subfinder /usr/local/bin/subfinder \
+    && chmod +x /usr/local/bin/subfinder \
+    && rm -rf /tmp/subfinder*
+
+# httpx (PD) — HTTP probe / tech detection
+RUN LATEST=$(curl -fsSL -o /dev/null -w '%{url_effective}' \
+      https://github.com/projectdiscovery/httpx/releases/latest \
+      | sed 's|.*/tag/v||') \
+    && curl -fsSL \
+      "https://github.com/projectdiscovery/httpx/releases/download/v${LATEST}/httpx_${LATEST}_${TARGETOS}_${TARGETARCH}.zip" \
+      -o /tmp/httpx.zip \
+    && unzip -q /tmp/httpx.zip httpx -d /tmp/httpx \
+    && mv /tmp/httpx/httpx /usr/local/bin/httpx \
+    && chmod +x /usr/local/bin/httpx \
+    && rm -rf /tmp/httpx*
 
 # ─── Stage 2: Adversa worker ──────────────────────────────────────────────────
 FROM python:3.13-slim-bookworm
@@ -11,11 +43,12 @@ FROM python:3.13-slim-bookworm
 WORKDIR /app
 
 # ── System packages ────────────────────────────────────────────────────────────
-# nmap        — network/port scanner (Phase 1)
-# curl/wget   — needed by installer scripts below
-# gnupg/apt-transport-https — for trivy apt repo
-# default-jre — required by Joern (JVM-based CPG tool)
-# chromium    — Playwright browser (Phase 2 recon agent)
+# nmap                — network/port scanner (Phase 1)
+# curl/wget           — used by installer scripts below
+# gnupg/apt-transport-https — for Trivy apt repo
+# unzip               — needed by Joern installer
+# default-jre-headless — required by Joern (JVM-based CPG tool)
+# chromium            — Playwright browser (Phase 2 recon agent)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         nmap \
         curl \
@@ -23,6 +56,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         gnupg \
         apt-transport-https \
         ca-certificates \
+        unzip \
         default-jre-headless \
         chromium \
     && rm -rf /var/lib/apt/lists/*
@@ -33,12 +67,12 @@ RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/
 
 # ── Joern (CPG / taint-flow analysis) ─────────────────────────────────────────
 RUN curl -fL https://github.com/joernio/joern/releases/latest/download/joern-install.sh \
-      | sh -s -- --prefix=/usr/local/joern \
-    && ln -s /usr/local/joern/joern-cli/joern /usr/local/bin/joern
+      | sh -s -- --install-dir=/opt/joern --without-plugins \
+    && ln -s /opt/joern/joern-cli/joern /usr/local/bin/joern
 
-# ── Go-based tools from build stage ───────────────────────────────────────────
-COPY --from=go-tools /go/bin/subfinder /usr/local/bin/subfinder
-COPY --from=go-tools /go/bin/httpx     /usr/local/bin/httpx
+# ── ProjectDiscovery tools from build stage ───────────────────────────────────
+COPY --from=pd-tools /usr/local/bin/subfinder /usr/local/bin/subfinder
+COPY --from=pd-tools /usr/local/bin/httpx     /usr/local/bin/httpx
 
 # ── Python dependencies ────────────────────────────────────────────────────────
 RUN pip install --no-cache-dir uv

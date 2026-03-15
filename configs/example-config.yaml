@@ -5,7 +5,7 @@ meta:
 
 llm:
   model_name: "claude-sonnet-4-6"
-  api_key: "${LLM_API_KEY}"
+  api_key_env: "LLM_API_KEY"   # name of the env var holding the key — never the value itself
   base_url: null  # null = Anthropic. Set for third-party Anthropic-compatible providers.
 
 target:
@@ -66,3 +66,10 @@ repo:
   language: null          # auto-detected by Phase 0 if null
   semgrep_rulesets: null  # auto-detected by Phase 0 if null
   joern_enabled: true
+
+# Optional: Langfuse observability tracing
+# Requires LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL,
+# LANGSMITH_OTEL_ENABLED=true, LANGSMITH_OTEL_ONLY=true, LANGSMITH_TRACING=true
+# in the worker environment.
+tracing:
+  enabled: false
