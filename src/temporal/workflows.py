@@ -1,5 +1,5 @@
 """
-Adversa top-level Temporal workflow skeleton.
+Adversa top-level Temporal workflow.
 
 PentestPipelineWorkflow orchestrates all phases in order:
   Phase 0 → preflight
@@ -9,6 +9,11 @@ PentestPipelineWorkflow orchestrates all phases in order:
   Phase 4 → exploitation (Pro only)
   Phase 5a → findings report (OSS)
   Phase 5b → pentest report (Pro only)
+
+Unimplemented phases are stubs that return WorkflowResult(status="complete")
+immediately. Replace each stub with real logic as the phase is built.
+This means the full workflow can be run end-to-end at any stage of development
+without needing separate test workflows.
 """
 from __future__ import annotations
 
@@ -58,7 +63,11 @@ class PentestPipelineWorkflow:
             retry_policy=_RETRY_POLICY,
         )
         if preflight.status == "aborted":
-            return WorkflowResult(status="aborted", reason=preflight.reason)
+            return WorkflowResult(
+                status="aborted",
+                reason=preflight.reason,
+                preflight_json=preflight.preflight_json,
+            )
 
         # ── Phase 1: tool-only pre-recon ──────────────────────────────────────
         await workflow.execute_activity(

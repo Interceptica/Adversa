@@ -1,13 +1,24 @@
 """
 Activity stubs for the Adversa Temporal pipeline.
 
-All activities raise NotImplementedError — business logic lands in subsequent tickets.
-Activities are thin wrappers only; they must import from src.services/, never the reverse.
+Unimplemented activities return WorkflowResult(status="complete") so the full
+workflow runs end-to-end during development. Replace each stub with real logic
+as the corresponding ticket is implemented.
+
+Activities are thin wrappers only; all business logic lives in src/services/.
 Retry policy (3 attempts, exponential backoff) is set on the workflow side.
 """
 from __future__ import annotations
 
+import dataclasses
+import json
+
 from temporalio import activity
+
+# Tracing is initialised lazily per-thread via agent_runner.py when
+# config.tracing.enabled=true. No global setup needed here — the runner
+# calls configure_claude_agent_sdk() inside each thread's fresh event loop
+# (which is where ClaudeSDKClient is created and must be patched).
 
 from src.types import WorkflowInput, WorkflowResult
 
@@ -18,75 +29,78 @@ async def run_preflight_phase(input: WorkflowInput) -> WorkflowResult:
     from src.services.preflight import run_preflight
 
     result = await run_preflight(input.config)
+    preflight_json = json.dumps(dataclasses.asdict(result))
+
     if result.status == "fail":
         return WorkflowResult(
             status="aborted",
             reason=f"Pre-flight failed: {'; '.join(result.errors)}",
+            preflight_json=preflight_json,
         )
-    return WorkflowResult(status="complete")
+    return WorkflowResult(status="complete", preflight_json=preflight_json)
 
 
 @activity.defn
 async def run_pre_recon_phase(input: WorkflowInput) -> WorkflowResult:
     """Phase 1 — tool-only recon: nmap, subfinder, httpx, Semgrep, Trivy, Joern CPG build."""
-    raise NotImplementedError("run_pre_recon_phase not yet implemented")
+    return WorkflowResult(status="complete")  # stub — implement in Phase 1 ticket
 
 
 @activity.defn
 async def run_recon_phase(input: WorkflowInput) -> WorkflowResult:
     """Phase 2 — LLM-driven recon agent: endpoint discovery, auth session, recon map."""
-    raise NotImplementedError("run_recon_phase not yet implemented")
+    return WorkflowResult(status="complete")  # stub — implement in Phase 2 ticket
 
 
 @activity.defn
 async def run_injection_analysis(input: WorkflowInput) -> WorkflowResult:
     """Phase 3 — injection vulnerability analysis (STRIDE: Tampering, OWASP A03)."""
-    raise NotImplementedError("run_injection_analysis not yet implemented")
+    return WorkflowResult(status="complete")  # stub — implement in Phase 3 ticket
 
 
 @activity.defn
 async def run_authz_analysis(input: WorkflowInput) -> WorkflowResult:
     """Phase 3 — authorisation analysis (STRIDE: Spoofing+EoP, OWASP A01/A07)."""
-    raise NotImplementedError("run_authz_analysis not yet implemented")
+    return WorkflowResult(status="complete")  # stub — implement in Phase 3 ticket
 
 
 @activity.defn
 async def run_info_disclosure_analysis(input: WorkflowInput) -> WorkflowResult:
     """Phase 3 — information disclosure analysis (STRIDE: Info Disclosure, OWASP A01/A02)."""
-    raise NotImplementedError("run_info_disclosure_analysis not yet implemented")
+    return WorkflowResult(status="complete")  # stub — implement in Phase 3 ticket
 
 
 @activity.defn
 async def run_ssrf_analysis(input: WorkflowInput) -> WorkflowResult:
     """Phase 3 — SSRF analysis (OWASP A10)."""
-    raise NotImplementedError("run_ssrf_analysis not yet implemented")
+    return WorkflowResult(status="complete")  # stub — implement in Phase 3 ticket
 
 
 @activity.defn
 async def run_sast_triage(input: WorkflowInput) -> WorkflowResult:
     """Phase 3 — SAST finding triage against Semgrep/Joern results (OWASP A03/A05/A08)."""
-    raise NotImplementedError("run_sast_triage not yet implemented")
+    return WorkflowResult(status="complete")  # stub — implement in Phase 3 ticket
 
 
 @activity.defn
 async def run_sca_reachability(input: WorkflowInput) -> WorkflowResult:
     """Phase 3 — SCA reachability analysis of Trivy findings (OWASP A06)."""
-    raise NotImplementedError("run_sca_reachability not yet implemented")
+    return WorkflowResult(status="complete")  # stub — implement in Phase 3 ticket
 
 
 @activity.defn
 async def run_exploit_agent(input: WorkflowInput) -> WorkflowResult:
     """Phase 4 (Pro only) — conditional parallel exploitation."""
-    raise NotImplementedError("run_exploit_agent not yet implemented")
+    return WorkflowResult(status="complete")  # stub — implement in Phase 4 ticket (Pro)
 
 
 @activity.defn
 async def run_findings_report(input: WorkflowInput) -> WorkflowResult:
     """Phase 5a (OSS) — findings report generation."""
-    raise NotImplementedError("run_findings_report not yet implemented")
+    return WorkflowResult(status="complete")  # stub — implement in Phase 5a ticket
 
 
 @activity.defn
 async def run_pentest_report(input: WorkflowInput) -> WorkflowResult:
     """Phase 5b (Pro only) — full pentest report generation."""
-    raise NotImplementedError("run_pentest_report not yet implemented")
+    return WorkflowResult(status="complete")  # stub — implement in Phase 5b ticket (Pro)

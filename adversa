@@ -1,0 +1,254 @@
+#!/usr/bin/env bash
+# adversa — CLI for the Adversa pentest platform
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PYTHON="${SCRIPT_DIR}/.venv/bin/python"
+
+# ─── .env loading ─────────────────────────────────────────────────────────────
+
+if [ -f "${SCRIPT_DIR}/.env" ]; then
+    set -a
+    # shellcheck source=/dev/null
+    source "${SCRIPT_DIR}/.env"
+    set +a
+fi
+
+# ─── Container runtime detection ──────────────────────────────────────────────
+
+if command -v podman &>/dev/null && command -v podman-compose &>/dev/null; then
+    COMPOSE_CMD="podman-compose"
+    CONTAINER_CMD="podman"
+elif command -v docker &>/dev/null; then
+    COMPOSE_CMD="docker compose"
+    CONTAINER_CMD="docker"
+else
+    echo "[adversa] error: neither docker nor podman found in PATH" >&2
+    exit 1
+fi
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+
+_err()  { echo "[adversa] error: $*" >&2; exit 1; }
+_info() { echo "[adversa] $*"; }
+
+_parse_args() {
+    CONFIG=""
+    PHASE="preflight"
+    ID=""
+    CLEAN="false"
+    PULL="false"
+    REBUILD="false"
+    WORKSPACE=""
+
+    for arg in "$@"; do
+        case "$arg" in
+            CONFIG=*)     CONFIG="${arg#CONFIG=}" ;;
+            PHASE=*)      PHASE="${arg#PHASE=}" ;;
+            ID=*)         ID="${arg#ID=}" ;;
+            CLEAN=*)      CLEAN="${arg#CLEAN=}" ;;
+            PULL=*)       PULL="${arg#PULL=}" ;;
+            REBUILD=*)    REBUILD="${arg#REBUILD=}" ;;
+            WORKSPACE=*)  WORKSPACE="${arg#WORKSPACE=}" ;;
+        esac
+    done
+}
+
+_build_images() {
+    local pull="${1:-false}"
+    local rebuild="${2:-false}"
+
+    if [ "$pull" = "true" ]; then
+        _info "Pulling base images..."
+        $COMPOSE_CMD pull --ignore-buildable
+    fi
+
+    _info "Building adversa worker image..."
+    if [ "$rebuild" = "true" ]; then
+        $COMPOSE_CMD build --no-cache adversa
+    else
+        $COMPOSE_CMD build adversa
+    fi
+}
+
+_start_containers() {
+    _info "Starting containers..."
+    # --force-recreate adversa ensures the worker always picks up the latest .env.
+    # Other services (temporal, postgresql) start normally and are not disturbed if already healthy.
+    $COMPOSE_CMD up -d
+    $COMPOSE_CMD up -d --force-recreate --no-deps adversa
+
+    _info "Waiting for Temporal to be ready..."
+    local attempts=0
+    until $COMPOSE_CMD exec temporal tctl --address temporal:7233 cluster health 2>/dev/null | grep -q SERVING; do
+        attempts=$((attempts + 1))
+        if [ "$attempts" -ge 12 ]; then
+            _err "Temporal did not become healthy within 60s. Run '${COMPOSE_CMD} logs temporal' to diagnose."
+        fi
+        sleep 5
+    done
+    _info "Temporal is ready."
+}
+
+_ensure_containers() {
+    _build_images "false" "false"
+    _start_containers
+}
+
+# ─── Commands ─────────────────────────────────────────────────────────────────
+
+show_help() {
+    cat <<'EOF'
+
+ █████╗ ██████╗ ██╗   ██╗███████╗██████╗ ███████╗ █████╗
+██╔══██╗██╔══██╗██║   ██║██╔════╝██╔══██╗██╔════╝██╔══██╗
+███████║██║  ██║██║   ██║█████╗  ██████╔╝███████╗███████║
+██╔══██║██║  ██║╚██╗ ██╔╝██╔══╝  ██╔══██╗╚════██║██╔══██║
+██║  ██║██████╔╝ ╚████╔╝ ███████╗██║  ██║███████║██║  ██║
+╚═╝  ╚═╝╚═════╝   ╚═══╝  ╚══════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝
+
+  AI-powered penetration testing platform
+
+Usage:
+  ./adversa <command> [KEY=VALUE ...]
+
+Commands:
+  build      Build (or pull) container images
+             PULL=true       pull base images first
+             REBUILD=true    build with --no-cache
+
+  start      Submit a full engagement
+             CONFIG=<path>   path to config YAML (required)
+
+  dev        Run Phase 0 smoke test locally
+             CONFIG=<path>   path to config YAML (required)
+             PHASE=preflight (default; only option for now)
+
+  stop       Stop containers
+             CLEAN=true      also remove volumes
+
+  logs       Tail logs for an engagement
+             ID=<id>         engagement ID (required)
+
+  query      Describe a running workflow
+             ID=<id>         engagement ID (required)
+
+  report     Open the HTML findings report
+             ID=<id>         engagement ID (required)
+
+  workspaces List config files in ./configs/
+
+Examples:
+  ./adversa build PULL=true
+  ./adversa dev   CONFIG=./configs/juiceshop.config.yaml
+  ./adversa start CONFIG=./adversa.config.yaml
+  ./adversa stop  CLEAN=true
+  ./adversa logs  ID=adv-juice-shop-20260315-1200
+
+EOF
+}
+
+cmd_build() {
+    _parse_args "$@"
+    _build_images "$PULL" "$REBUILD"
+    _info "Build complete. Run './adversa start' or './adversa dev' to launch."
+}
+
+cmd_start() {
+    _parse_args "$@"
+    [ -z "$CONFIG" ] && _err "CONFIG= is required. Usage: ./adversa start CONFIG=./adversa.config.yaml"
+    [ -f "$CONFIG" ] || _err "Config file not found: $CONFIG"
+
+    _ensure_containers
+
+    _info "Submitting full engagement from $CONFIG..."
+    "$PYTHON" -m src.temporal.client --config "$CONFIG"
+}
+
+cmd_dev() {
+    _parse_args "$@"
+    [ -z "$CONFIG" ] && _err "CONFIG= is required. Usage: ./adversa dev CONFIG=./configs/juiceshop.config.yaml"
+    [ -f "$CONFIG" ] || _err "Config file not found: $CONFIG"
+
+    if [ "$PHASE" != "preflight" ]; then
+        _err "Only PHASE=preflight is supported in dev mode."
+    fi
+
+    _ensure_containers
+
+    _info "Running Phase 0 smoke test (phase=$PHASE) with config: $CONFIG"
+    _info "─────────────────────────────────────────"
+
+    set +e
+    "$PYTHON" -m src.temporal.client --config "$CONFIG" --phase "$PHASE"
+    exit_code=$?
+    set -e
+
+    _info "─────────────────────────────────────────"
+    if [ "$exit_code" -eq 0 ]; then
+        _info "Phase 0 PASSED"
+    else
+        _info "Phase 0 FAILED (exit $exit_code)"
+    fi
+    exit "$exit_code"
+}
+
+cmd_stop() {
+    _parse_args "$@"
+    if [ "$CLEAN" = "true" ]; then
+        _info "Stopping containers and removing volumes..."
+        $COMPOSE_CMD down -v
+    else
+        _info "Stopping containers (data preserved)..."
+        $COMPOSE_CMD down
+    fi
+}
+
+cmd_logs() {
+    _parse_args "$@"
+    [ -z "$ID" ] && _err "ID= is required. Usage: ./adversa logs ID=<engagement-id>"
+    _info "Tailing logs for engagement: $ID"
+    $COMPOSE_CMD logs -f adversa | grep --line-buffered "$ID"
+}
+
+cmd_query() {
+    _parse_args "$@"
+    [ -z "$ID" ] && _err "ID= is required. Usage: ./adversa query ID=<engagement-id>"
+    _info "Querying engagement $ID..."
+    $COMPOSE_CMD exec temporal \
+        tctl --address temporal:7233 workflow describe --workflow_id "$ID" 2>/dev/null \
+        || _err "Could not query workflow $ID — is it running?"
+}
+
+cmd_report() {
+    _parse_args "$@"
+    [ -z "$ID" ] && _err "ID= is required. Usage: ./adversa report ID=<engagement-id>"
+    report_path="./reports/${ID}/findings_report.html"
+    [ -f "$report_path" ] || _err "Report not found: $report_path"
+    open "$report_path" 2>/dev/null || xdg-open "$report_path" 2>/dev/null || _info "Report at: $report_path"
+}
+
+cmd_workspaces() {
+    _info "Available configs in ./configs/:"
+    if compgen -G "${SCRIPT_DIR}/configs/*.yaml" &>/dev/null; then
+        for f in "${SCRIPT_DIR}"/configs/*.yaml; do
+            echo "  $f"
+        done
+    else
+        _info "  (none found — add YAML files to ./configs/)"
+    fi
+}
+
+# ─── Dispatch ─────────────────────────────────────────────────────────────────
+
+case "${1:-help}" in
+    build)       shift; cmd_build      "$@" ;;
+    start)       shift; cmd_start      "$@" ;;
+    dev)         shift; cmd_dev        "$@" ;;
+    stop)        shift; cmd_stop       "$@" ;;
+    logs)        shift; cmd_logs       "$@" ;;
+    query)       shift; cmd_query      "$@" ;;
+    report)      shift; cmd_report     "$@" ;;
+    workspaces)  shift; cmd_workspaces "$@" ;;
+    help|--help|-h|*) show_help ;;
+esac

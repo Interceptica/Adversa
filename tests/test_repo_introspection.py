@@ -10,9 +10,12 @@ Strategy under test:
 from __future__ import annotations
 
 import json
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+os.environ.setdefault("ANTHROPIC_API_KEY", "sk-test")
 
 from src.artifacts.schemas import RepoProfile
 from src.config.models import (
@@ -45,7 +48,7 @@ def _make_config(
 ) -> AdversaConfig:
     return AdversaConfig(
         meta=MetaConfig(project="test", engagement_id="adv-test-001"),
-        llm=LLMConfig(model_name="claude-sonnet-4-6", api_key="sk-test"),
+        llm=LLMConfig(model_name="claude-sonnet-4-6", api_key_env="ANTHROPIC_API_KEY"),
         target=TargetConfig(base_url="https://api.target.com", included_hosts=["api.target.com"]),
         authentication=AuthConfig(login_type="none"),
         scope=ScopeConfig(rules=ScopeRules()),

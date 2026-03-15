@@ -1,0 +1,45 @@
+meta:
+  project: "OWASP Juice Shop — Phase 0 Smoke Test"
+  # engagement_id auto-generated as adv-{timestamp}
+
+llm:
+  model_name: "deepseek/deepseek-v3.2"
+  api_key_env: "NOVITA_API_KEY"   # name of the env var — value read at runtime
+  base_url: "https://api.novita.ai/anthropic"
+
+target:
+  base_url: "http://host.docker.internal:3000"
+  included_hosts:
+    - "host.docker.internal"
+
+authentication:
+  login_type: none
+
+scope:
+  rules:
+    avoid:
+      - description: "Skip health probe"
+        type: path
+        url_path: "/health"
+    focus:
+      - description: "Focus on REST API"
+        type: path_pattern
+        url_path: "/api/*"
+
+pipeline:
+  enabled:
+    - pre_recon
+    - recon
+    - sast
+    - sca
+    - dast
+    - taint_analysis
+  parallel: true
+  max_concurrent_pipelines: 5
+
+repo:
+  path: "./repos/juice-shop"
+  joern_enabled: false
+
+tracing:
+  enabled: true  # set false to skip Langfuse tracing

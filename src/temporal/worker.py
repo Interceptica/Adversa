@@ -9,6 +9,7 @@ import os
 
 from temporalio.client import Client
 from temporalio.worker import Worker
+from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
 
 from src.temporal.activities import (
     run_authz_analysis,
@@ -37,6 +38,11 @@ async def run_worker() -> None:
         client,
         task_queue=TASK_QUEUE,
         workflows=[PentestPipelineWorkflow],
+        workflow_runner=SandboxedWorkflowRunner(
+            restrictions=SandboxRestrictions.default.with_passthrough_modules(
+                "pydantic", "pydantic_core",
+            )
+        ),
         activities=[
             run_preflight_phase,
             run_pre_recon_phase,

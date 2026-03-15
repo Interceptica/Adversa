@@ -73,7 +73,7 @@ services:
       - .env
     environment:
       # Temporal connection (points to the temporal service above)
-      - TEMPORAL_HOST=temporal:7233
+      - TEMPORAL_SERVER_URL=temporal:7233
       # Prevent Playwright from using sandbox (required in Docker)
       - PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
     volumes:

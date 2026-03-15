@@ -3,13 +3,13 @@ Phase 0: Repo introspection — auto-detect language, frameworks, and Semgrep ru
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
+from claude_agent_sdk import ClaudeAgentOptions
 
 from src.artifacts.schemas import RepoProfile
 from src.config.models import AdversaConfig
+from src.services.agent_runner import build_agent_env, run_agent
 
 # Read-only Claude Code built-in tools the introspection agent may use.
 # LS   — list directory contents
@@ -153,12 +153,8 @@ async def _run_introspection_agent(
     config: AdversaConfig,
 ) -> dict:
     """
-    Run a claude-agent-sdk agent with LS/Read/Glob tools to explore the repo
-    and identify frameworks and Semgrep rulesets.
-
-    The agent's cwd is set to repo_path so it works with relative paths.
-    max_turns=15 gives it enough turns to ls → read manifests → conclude.
-    Returns parsed JSON dict, or {} on any failure — never raises.
+    Run an agent with LS/Read/Glob tools to explore the repo and identify
+    frameworks and Semgrep rulesets. Returns parsed JSON dict, or {} on failure.
     """
     prompt = _USER_PROMPT.format(
         repo_path=str(repo_path),
@@ -166,29 +162,24 @@ async def _run_introspection_agent(
         valid_rulesets=", ".join(sorted(VALID_RULESETS)),
     )
 
-    env: dict[str, str] = {"ANTHROPIC_API_KEY": config.llm.api_key}
-    if config.llm.base_url:
-        env["ANTHROPIC_BASE_URL"] = config.llm.base_url
-
     options = ClaudeAgentOptions(
         model=config.llm.model_name,
         system_prompt=_SYSTEM_PROMPT,
-        allowed_tools=_ALLOWED_TOOLS,  # LS, Read, Glob, Grep — read-only exploration
-        max_turns=50,
+        allowed_tools=_ALLOWED_TOOLS,
+        max_turns=15,
         cwd=str(repo_path),
-        env=env,
+        env=build_agent_env(config),
         permission_mode="default",
     )
 
-    try:
-        async for message in query(prompt=prompt, options=options):
-            if isinstance(message, ResultMessage):
-                raw = (message.result or "").strip()
-                return json.loads(raw)
-    except Exception:
-        pass
+    result = await run_agent(
+        options=options,
+        prompt=prompt,
+        config=config,
+        parse_json=True,
+    )
 
-    return {}
+    return result.get("parsed") or {}
 
 
 # ─── Step 3: resolve + validate ───────────────────────────────────────────────

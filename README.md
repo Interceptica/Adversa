@@ -324,6 +324,46 @@ Auto-detected from your repo. Override by setting `repo.language` in config.
 
 ---
 
+## Development / Testing Against Juice Shop
+
+Run Phase 0 end-to-end against OWASP Juice Shop before building Phase 1.
+
+```bash
+# Clone Juice Shop
+git clone https://github.com/juice-shop/juice-shop.git ./repos/juice-shop
+
+# Start Juice Shop (exposes port 3000)
+cd repos/juice-shop && docker compose up -d && cd ../..
+
+# Run Phase 0 smoke test
+./adversa dev CONFIG=./configs/juiceshop.config.yaml
+```
+
+Expected output:
+```json
+{
+  "status": "pass",
+  "checks": [...],
+  "errors": [],
+  "scope_manifest": { "included_hosts": ["host.docker.internal"], ... },
+  "repo_profile": {
+    "languages": ["javascript", "typescript"],
+    "frameworks": ["express", ...],
+    "semgrep_rulesets": ["p/owasp-top-ten", "p/javascript", "p/typescript"],
+    "detection_method": "llm",
+    "confidence": "high"
+  }
+}
+```
+
+The `dev` command:
+1. Builds the `adversa` worker image (uses Docker layer cache — fast on re-runs)
+2. Starts the full stack (`postgresql`, `temporal`, `adversa` worker)
+3. Submits `PreflightWorkflow` (Phase 0 only — does not proceed to Phase 1+)
+4. Prints the `PreflightResult` JSON and exits `0` (pass) or `1` (fail)
+
+---
+
 ## Disclaimers
 
 - Adversa is designed for **whitebox testing** — it requires source code access
