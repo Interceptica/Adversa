@@ -10,10 +10,14 @@ Retry policy (3 attempts, exponential backoff) is set on the workflow side.
 """
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import json
+import logging
 
 from temporalio import activity
+
+logger = logging.getLogger(__name__)
 
 # Tracing is initialised lazily per-thread via agent_runner.py when
 # config.tracing.enabled=true. No global setup needed here — the runner
@@ -42,8 +46,27 @@ async def run_preflight_phase(input: WorkflowInput) -> WorkflowResult:
 
 @activity.defn
 async def run_pre_recon_phase(input: WorkflowInput) -> WorkflowResult:
-    """Phase 1 — tool-only recon: nmap, subfinder, httpx, Semgrep, Trivy, Joern CPG build."""
-    return WorkflowResult(status="complete")  # stub — implement in Phase 1 ticket
+    """Phase 1 — agent-driven pre-recon: semgrep, trivy, nmap, subfinder, httpx, joern."""
+    from src.artifacts.store import ArtifactStore
+    from src.agents.pre_recon import run_pre_recon
+
+    store = ArtifactStore(input.config.meta.engagement_id)
+    try:
+        output = await run_pre_recon(input.config, store)
+    except asyncio.CancelledError:
+        logger.info("Pre-recon activity cancelled by workflow")
+        return WorkflowResult(status="aborted", reason="Cancelled by user")
+
+    # Check for any scanner-level errors
+    errors = []
+    for key in ("semgrep_error", "sca_error", "joern_error"):
+        err = output.get(key)
+        if err:
+            errors.append(f"{key.replace('_error', '')}: {err}")
+
+    if errors:
+        return WorkflowResult(status="partial", reason="; ".join(errors))
+    return WorkflowResult(status="complete")
 
 
 @activity.defn
