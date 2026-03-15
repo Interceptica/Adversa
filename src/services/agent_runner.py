@@ -19,42 +19,19 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
-import json
 import logging
-import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from claude_agent_sdk import (
-    AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKClient,
     ResultMessage,
-    TextBlock,
 )
 
 from src.config.models import AdversaConfig
 
 log = logging.getLogger(__name__)
-
-
-def _extract_json(text: str) -> dict | None:
-    """Extract the last JSON object from text that may contain prose + JSON.
-
-    Fallback for providers that don't support output_format structured output.
-    """
-    try:
-        return json.loads(text.strip())
-    except (json.JSONDecodeError, ValueError):
-        pass
-
-    matches = list(re.finditer(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text, re.DOTALL))
-    for match in reversed(matches):
-        try:
-            return json.loads(match.group())
-        except (json.JSONDecodeError, ValueError):
-            continue
-    return None
 
 
 def build_agent_env(config: AdversaConfig) -> dict[str, str]:
@@ -74,12 +51,12 @@ async def run_agent(
     """
     Run a ClaudeSDKClient agent in a dedicated thread with a fresh event loop.
 
-    When options.output_format is set, the agent returns structured output via
-    ResultMessage.structured_output — no regex extraction needed.
+    The agent returns structured output via ResultMessage.structured_output
+    when options.output_format is set (enforced by the SDK as a tool call).
 
     Returns a dict with:
       - result: str — final ResultMessage text
-      - structured_output: dict | None — validated structured output (if output_format set)
+      - structured_output: dict | None — validated structured output
       - error: str | None — error message if the agent failed
 
     Never raises — all errors are captured in the return dict.
@@ -92,8 +69,6 @@ async def run_agent(
             # before creating the client instance in this new loop.
             if config.tracing.enabled:
                 try:
-                    # Langfuse must init first — it registers the OTel exporter
-                    # that receives spans from configure_claude_agent_sdk().
                     from langfuse import get_client as _get_langfuse
                     _get_langfuse()
                     from langsmith.integrations.claude_agent_sdk import configure_claude_agent_sdk
@@ -102,31 +77,17 @@ async def run_agent(
                     pass
 
             result_text: str = ""
-            last_assistant_text: str = ""
             structured: dict | None = None
             try:
                 async with ClaudeSDKClient(options=options) as client:
                     await client.query(prompt)
                     async for message in client.receive_response():
-                        if isinstance(message, AssistantMessage):
-                            for block in message.content:
-                                if isinstance(block, TextBlock) and block.text.strip():
-                                    last_assistant_text = block.text.strip()
                         if isinstance(message, ResultMessage):
                             result_text = (message.result or "").strip()
                             structured = getattr(message, "structured_output", None)
             except Exception as exc:
                 log.warning("Agent failed: %s", exc)
                 return {"result": "", "structured_output": None, "error": str(exc)}
-
-            # Fallback: if structured_output is None (provider doesn't support
-            # output_format), extract JSON from the agent's text response.
-            if structured is None:
-                raw = result_text or last_assistant_text
-                if raw:
-                    structured = _extract_json(raw)
-                    if structured is None:
-                        log.warning("Agent JSON extraction failed | raw=%r", raw[:300])
 
             return {"result": result_text, "structured_output": structured, "error": None}
 
