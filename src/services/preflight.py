@@ -8,6 +8,7 @@ never short-circuits after the first error.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from pathlib import Path
 
 import httpx
@@ -17,7 +18,7 @@ from src.config.models import AdversaConfig
 from src.scope.enforcer import ScopeEnforcer
 
 # Tools that must be present in the container for scans to run.
-_BASE_REQUIRED_TOOLS = ["semgrep", "trivy", "nmap", "subfinder", "httpx"]
+_BASE_REQUIRED_TOOLS = ["semgrep", "trivy", "nmap", "subfinder", "pd-httpx", "npm"]
 _JOERN_TOOL = "joern"
 
 
@@ -107,10 +108,17 @@ async def run_preflight(config: AdversaConfig) -> PreflightResult:
         from src.services.repo_introspection import run_repo_introspection
         repo_profile = await run_repo_introspection(config)
 
-    return PreflightResult(
+    result = PreflightResult(
         status="fail" if failed else "pass",
         checks=checks,
         errors=[c.detail for c in failed if c.detail],
         scope_manifest=scope_manifest,
         repo_profile=repo_profile,
     )
+
+    # Write artifacts to store for Phase 1 consumption
+    from src.artifacts.store import ArtifactStore
+    store = ArtifactStore(config.meta.engagement_id)
+    store.write("PREFLIGHT_RESULT", dataclasses.asdict(result))
+
+    return result

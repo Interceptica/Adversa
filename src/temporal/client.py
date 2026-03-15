@@ -54,7 +54,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--phase",
         default=None,
-        choices=["preflight"],
+        choices=["preflight", "prerecon"],
         help="Focus output on a specific phase result (workflow always runs in full)",
     )
     args = parser.parse_args()
@@ -76,6 +76,53 @@ if __name__ == "__main__":
             # Print the PreflightResult JSON so dev can inspect Phase 0 output
             data = json.loads(result.preflight_json)
             print(json.dumps(data, indent=2))
+        elif args.phase == "prerecon":
+            # Print Phase 1 artifact summary from artifact store
+            from src.artifacts.store import ArtifactStore
+            store = ArtifactStore(config.meta.engagement_id)
+            summary = {}
+            all_warnings: list[str] = []
+            for artifact in ["SEMGREP_RAW", "SBOM", "INFRA_MAP", "TECH_STACK", "JOERN_CPG_PATH"]:
+                if store.exists(artifact):
+                    data = store.read(artifact)
+                    # Collect warnings from all artifacts
+                    artifact_warnings = data.get("warnings", [])
+                    for w in artifact_warnings:
+                        all_warnings.append(f"[{artifact}] {w}")
+                    # Show counts/status, not full data
+                    if artifact == "SEMGREP_RAW":
+                        summary[artifact] = {
+                            "total": data.get("total"),
+                            "files_scanned": data.get("files_scanned", 0),
+                            "by_severity": data.get("by_severity"),
+                            "rulesets_used": data.get("rulesets_used"),
+                            "error": data.get("error"),
+                        }
+                    elif artifact == "SBOM":
+                        summary[artifact] = {
+                            "total": data.get("total"),
+                            "by_severity": data.get("by_severity"),
+                            "lockfile_found": data.get("lockfile_found"),
+                            "lockfile_type": data.get("lockfile_type"),
+                            "error": data.get("error"),
+                        }
+                    elif artifact == "INFRA_MAP":
+                        summary[artifact] = {"total_hosts": data.get("total_hosts"), "total_open_ports": data.get("total_open_ports")}
+                    elif artifact == "TECH_STACK":
+                        summary[artifact] = {"technologies": data.get("technologies", []), "servers": data.get("servers", [])}
+                    elif artifact == "JOERN_CPG_PATH":
+                        summary[artifact] = {"success": data.get("success"), "error": data.get("error")}
+                else:
+                    summary[artifact] = {"status": "missing"}
+                    all_warnings.append(f"[{artifact}] Artifact not produced — scanner may have crashed.")
+            output = {
+                "status": result.status,
+                "reason": result.reason,
+                "artifacts": summary,
+            }
+            if all_warnings:
+                output["warnings"] = all_warnings
+            print(json.dumps(output, indent=2))
         else:
             print(json.dumps({"status": result.status, "reason": result.reason}, indent=2))
 

@@ -39,7 +39,7 @@ pipeline:
 
 repo:
   path: "./repos/juice-shop"
-  joern_enabled: false
+  joern_enabled: true
 
 tracing:
   enabled: true  # set false to skip Langfuse tracing
