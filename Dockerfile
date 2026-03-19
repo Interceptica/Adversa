@@ -37,6 +37,18 @@ RUN LATEST=$(curl -fsSL -o /dev/null -w '%{url_effective}' \
     && chmod +x /usr/local/bin/pd-httpx \
     && rm -rf /tmp/httpx*
 
+# katana — fast web crawler with headless JS support
+RUN LATEST=$(curl -fsSL -o /dev/null -w '%{url_effective}' \
+      https://github.com/projectdiscovery/katana/releases/latest \
+      | sed 's|.*/tag/v||') \
+    && curl -fsSL \
+      "https://github.com/projectdiscovery/katana/releases/download/v${LATEST}/katana_${LATEST}_${TARGETOS}_${TARGETARCH}.zip" \
+      -o /tmp/katana.zip \
+    && unzip -q /tmp/katana.zip katana -d /tmp/katana \
+    && mv /tmp/katana/katana /usr/local/bin/katana \
+    && chmod +x /usr/local/bin/katana \
+    && rm -rf /tmp/katana*
+
 # ─── Stage 2: Adversa worker ──────────────────────────────────────────────────
 FROM python:3.13-slim-bookworm
 
@@ -53,6 +65,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         nmap \
         curl \
         wget \
+        git \
         gnupg \
         apt-transport-https \
         ca-certificates \
@@ -78,6 +91,7 @@ RUN curl -fL https://github.com/joernio/joern/releases/latest/download/joern-ins
 # ── ProjectDiscovery tools from build stage ───────────────────────────────────
 COPY --from=pd-tools /usr/local/bin/subfinder /usr/local/bin/subfinder
 COPY --from=pd-tools /usr/local/bin/pd-httpx   /usr/local/bin/pd-httpx
+COPY --from=pd-tools /usr/local/bin/katana     /usr/local/bin/katana
 
 # ── Python dependencies ────────────────────────────────────────────────────────
 RUN pip install --no-cache-dir uv
@@ -90,6 +104,10 @@ RUN uv sync --frozen --no-dev
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
+
+# ── Playwright MCP server (Phase 2 recon agent browser automation) ──────────
+# @playwright/mcp is Microsoft's official MCP server for Playwright.
+RUN npm install -g @playwright/mcp
 
 # ── Semgrep (installed as Python package, exposes CLI) ─────────────────────────
 RUN uv run pip install --no-cache-dir semgrep

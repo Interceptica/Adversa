@@ -3,7 +3,7 @@ meta:
   # engagement_id auto-generated as adv-{timestamp}
 
 llm:
-  model_name: "deepseek/deepseek-v3.2"
+  model_name: "moonshotai/kimi-k2.5"
   api_key_env: "NOVITA_API_KEY"   # name of the env var — value read at runtime
   base_url: "https://api.novita.ai/anthropic"
 

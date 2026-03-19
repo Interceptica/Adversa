@@ -71,8 +71,22 @@ async def run_pre_recon_phase(input: WorkflowInput) -> WorkflowResult:
 
 @activity.defn
 async def run_recon_phase(input: WorkflowInput) -> WorkflowResult:
-    """Phase 2 — LLM-driven recon agent: endpoint discovery, auth session, recon map."""
-    return WorkflowResult(status="complete")  # stub — implement in Phase 2 ticket
+    """Phase 2 — whitebox recon agent: source-driven endpoint discovery, auth session, markdown deliverable."""
+    from src.artifacts.store import ArtifactStore
+    from src.agents.recon import run_recon
+
+    store = ArtifactStore(input.config.meta.engagement_id)
+    try:
+        output = await run_recon(input.config, store)
+    except asyncio.CancelledError:
+        logger.info("Recon activity cancelled by workflow")
+        return WorkflowResult(status="aborted", reason="Cancelled by user")
+
+    if not output.get("markdown_written"):
+        reason = output.get("error", "recon_deliverable.md was not written")
+        return WorkflowResult(status="failed", reason=reason)
+
+    return WorkflowResult(status="complete")
 
 
 @activity.defn

@@ -150,3 +150,19 @@ class PreReconResult:
     """Aggregate Phase 1 result returned by PreReconWorkflow."""
     status: str  # "complete" | "partial"
     errors: list[str] = field(default_factory=list)
+
+
+# ─── Phase 2 ──────────────────────────────────────────────────────────────────
+# The primary Phase 2 deliverable is recon_deliverable.md (markdown narrative).
+# AUTH_SESSION is the only structured artifact — Phase 3 agents need the raw
+# cookie/header values to make authenticated HTTP requests programmatically.
+
+
+@dataclass
+class AuthSession:
+    """AUTH_SESSION artifact — machine-readable session for Phase 3 HTTP requests."""
+    success: bool
+    login_type: str                              # "form" | "bearer" | "none" | etc.
+    cookies: dict[str, str] = field(default_factory=dict)
+    headers: dict[str, str] = field(default_factory=dict)  # e.g. {"Authorization": "Bearer ..."}
+    error: str | None = None
