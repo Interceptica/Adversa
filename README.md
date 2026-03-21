@@ -61,7 +61,7 @@ Your repo + adversa.config.yaml
 | Pentest report (CVSS, PoC, audit-ready PDF) | ❌ | ✅ |
 | SOC2 / ISO 27001 evidence package | ❌ | ✅ |
 
-[→ Learn about Adversa Pro](https://adversa.io)
+[→ Learn about Adversa Pro](https://interceptica.com/products/adversa)
 
 ---
 
